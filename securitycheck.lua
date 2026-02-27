@@ -1,181 +1,226 @@
--- Roblox Security Analyzer ELITE (Marketplace Edition)
+-- CLIENT SECURITY INTELLIGENCE DASHBOARD (Safe Edition)
 
 local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
 local player = Players.LocalPlayer
 
-local riskScore = 0
-local results = {}
+--========================--
+-- CONFIG
+--========================--
 
--------------------------------------------------
--- 등급 계산
--------------------------------------------------
+local SeverityWeight = {
+	Critical = 40,
+	Warning = 15,
+	Info = 5
+}
 
-local function getGrade(score)
-	if score <= 15 then return "A", Color3.fromRGB(0,200,0)
-	elseif score <= 30 then return "B", Color3.fromRGB(80,220,0)
-	elseif score <= 60 then return "C", Color3.fromRGB(255,170,0)
-	elseif score <= 90 then return "D", Color3.fromRGB(255,100,0)
-	else return "F", Color3.fromRGB(255,0,0)
+local SecurityScore = 100
+local Issues = {}
+local RemoteList = {}
+
+--========================--
+-- UI SETUP
+--========================--
+
+local gui = Instance.new("ScreenGui")
+gui.Name = "SecurityDashboard"
+gui.Parent = player:WaitForChild("PlayerGui")
+
+local main = Instance.new("Frame", gui)
+main.Size = UDim2.fromOffset(700, 450)
+main.Position = UDim2.fromScale(0.5,0.5)
+main.AnchorPoint = Vector2.new(0.5,0.5)
+main.BackgroundColor3 = Color3.fromRGB(17,17,17)
+main.Active = true
+main.Draggable = true
+
+Instance.new("UICorner", main).CornerRadius = UDim.new(0,18)
+
+-- Title
+local title = Instance.new("TextLabel", main)
+title.Size = UDim2.new(1,0,0,40)
+title.BackgroundTransparency = 1
+title.Text = "CLIENT SECURITY INTELLIGENCE"
+title.TextColor3 = Color3.fromRGB(212,175,55)
+title.Font = Enum.Font.GothamBold
+title.TextSize = 18
+
+-- Score Label
+local scoreLabel = Instance.new("TextLabel", main)
+scoreLabel.Position = UDim2.new(0,20,0,60)
+scoreLabel.Size = UDim2.new(0,200,0,50)
+scoreLabel.BackgroundTransparency = 1
+scoreLabel.Font = Enum.Font.GothamBold
+scoreLabel.TextSize = 32
+scoreLabel.TextColor3 = Color3.fromRGB(0,200,83)
+scoreLabel.Text = "Score: 100"
+
+-- Log Frame
+local logFrame = Instance.new("ScrollingFrame", main)
+logFrame.Position = UDim2.new(0,250,0,60)
+logFrame.Size = UDim2.new(0,420,0,250)
+logFrame.BackgroundColor3 = Color3.fromRGB(25,25,25)
+logFrame.CanvasSize = UDim2.new(0,0,0,0)
+
+local layout = Instance.new("UIListLayout", logFrame)
+
+-- Code Output
+local codeBox = Instance.new("TextBox", main)
+codeBox.Position = UDim2.new(0,20,0,120)
+codeBox.Size = UDim2.new(0,650,0,200)
+codeBox.MultiLine = true
+codeBox.ClearTextOnFocus = false
+codeBox.TextEditable = false
+codeBox.Font = Enum.Font.Code
+codeBox.TextSize = 14
+codeBox.TextColor3 = Color3.fromRGB(0,200,83)
+codeBox.BackgroundColor3 = Color3.fromRGB(20,20,20)
+
+--========================--
+-- LOG SYSTEM
+--========================--
+
+local function pulse()
+	local t1 = TweenService:Create(main,TweenInfo.new(0.15),{Size = UDim2.fromOffset(720,470)})
+	t1:Play()
+	t1.Completed:Wait()
+	TweenService:Create(main,TweenInfo.new(0.15),{Size = UDim2.fromOffset(700,450)}):Play()
+end
+
+local function addLog(text, severity)
+	local lbl = Instance.new("TextLabel")
+	lbl.Size = UDim2.new(1,-10,0,25)
+	lbl.BackgroundTransparency = 1
+	lbl.TextWrapped = true
+	lbl.Font = Enum.Font.Gotham
+	lbl.TextSize = 14
+	lbl.Text = "["..severity.."] "..text
+	
+	if severity == "Critical" then
+		lbl.TextColor3 = Color3.fromRGB(255,59,59)
+	elseif severity == "Warning" then
+		lbl.TextColor3 = Color3.fromRGB(255,193,7)
+	else
+		lbl.TextColor3 = Color3.fromRGB(0,200,83)
 	end
+	
+	lbl.Parent = logFrame
+	task.wait()
+	logFrame.CanvasSize = UDim2.new(0,0,0,layout.AbsoluteContentSize.Y)
 end
 
--------------------------------------------------
--- 결과 추가
--------------------------------------------------
-
-local function addResult(icon, message, defenseCode)
-	table.insert(results, {
-		icon = icon,
-		message = message,
-		defenseCode = defenseCode
-	})
+local function registerIssue(severity, text)
+	SecurityScore = math.clamp(SecurityScore - SeverityWeight[severity],0,100)
+	scoreLabel.Text = "Score: "..SecurityScore
+	
+	if SecurityScore > 70 then
+		scoreLabel.TextColor3 = Color3.fromRGB(0,200,83)
+	elseif SecurityScore > 40 then
+		scoreLabel.TextColor3 = Color3.fromRGB(255,193,7)
+	else
+		scoreLabel.TextColor3 = Color3.fromRGB(255,59,59)
+	end
+	
+	addLog(text,severity)
+	pulse()
 end
 
--------------------------------------------------
--- Remote 분석
--------------------------------------------------
+--========================--
+-- REMOTE SCAN
+--========================--
 
-local function analyzeRemotes()
-	for _, obj in ipairs(game:GetDescendants()) do
+local function classify(name)
+	name = string.lower(name)
+	if name:find("buy") or name:find("shop") then
+		return "Economy"
+	elseif name:find("damage") or name:find("attack") then
+		return "Combat"
+	elseif name:find("admin") then
+		return "Admin"
+	end
+	return "Generic"
+end
+
+local function scanRemotes()
+	for _,obj in pairs(ReplicatedStorage:GetDescendants()) do
 		if obj:IsA("RemoteEvent") then
-			riskScore += 20
-			
-			local defense = 
-"RemoteEvent.OnServerEvent:Connect(function(player, value)\n" ..
-"    if typeof(value) ~= 'number' then return end\n" ..
-"    if value < 0 or value > 1000 then return end\n" ..
-"    -- 안전 로직 실행\nend)"
-			
-			addResult("⚠️",
-				obj.Name .. "가 존재하여 서버 입력 검증이 필요합니다.",
-				defense
-			)
+			table.insert(RemoteList,obj.Name)
+			registerIssue("Warning","Remote exposed: "..obj.Name)
 		end
 	end
 end
 
--------------------------------------------------
--- leaderstats 분석
--------------------------------------------------
+--========================--
+-- CUSTOM DEFENSE GENERATOR
+--========================--
 
-local function analyzeLeaderstats()
-	if player:FindFirstChild("leaderstats") then
-		riskScore += 40
-		
-		local defense =
-"ServerScriptService Script:\n" ..
-"local Players = game:GetService('Players')\n" ..
-"Players.PlayerAdded:Connect(function(player)\n" ..
-"    local stats = Instance.new('Folder')\n" ..
-"    stats.Name = 'leaderstats'\n" ..
-"    stats.Parent = player\nend)"
-		
-		addResult("🚨",
-			"leaderstats가 클라이언트 접근 가능하여 조작 위험이 있습니다.",
-			defense
-		)
+local function generateDefense(remoteName)
+	local rType = classify(remoteName)
+	local code = {}
+
+	table.insert(code,"-- SECURE SERVER SCRIPT")
+	table.insert(code,"local ReplicatedStorage = game:GetService('ReplicatedStorage')")
+	table.insert(code,"local Remote = ReplicatedStorage:WaitForChild('"..remoteName.."')")
+	table.insert(code,"local LastCall = {}")
+	table.insert(code,"local COOLDOWN = 1")
+	table.insert(code,"")
+	table.insert(code,"Remote.OnServerEvent:Connect(function(player, ...)")
+	table.insert(code,"	local args = {...}")
+	table.insert(code,"	if LastCall[player] and tick()-LastCall[player] < COOLDOWN then return end")
+	table.insert(code,"	LastCall[player] = tick()")
+
+	if rType == "Economy" then
+		table.insert(code,"	local amount = args[1]")
+		table.insert(code,"	if type(amount) ~= 'number' then return end")
+		table.insert(code,"	if amount < 0 then return end")
+		table.insert(code,"	-- Recalculate price server-side")
+	elseif rType == "Combat" then
+		table.insert(code,"	local target = args[1]")
+		table.insert(code,"	if not target or not target:FindFirstChild('Humanoid') then return end")
+		table.insert(code,"	-- Validate distance server-side")
+	elseif rType == "Admin" then
+		table.insert(code,"	local Admins = {123456789}")
+		table.insert(code,"	if not table.find(Admins, player.UserId) then return end")
+	else
+		table.insert(code,"	-- Generic validation")
+		table.insert(code,"	for _,v in pairs(args) do")
+		table.insert(code,"		if typeof(v)=='number' and v < -100000 then return end")
+		table.insert(code,"	end")
 	end
+
+	table.insert(code,"end)")
+	return table.concat(code,"\n")
 end
 
--------------------------------------------------
--- GUI 생성
--------------------------------------------------
+-- Button
+local genBtn = Instance.new("TextButton", main)
+genBtn.Position = UDim2.new(0,20,0,350)
+genBtn.Size = UDim2.new(0,200,0,30)
+genBtn.Text = "Generate Defense Code"
+genBtn.BackgroundColor3 = Color3.fromRGB(212,175,55)
+genBtn.TextColor3 = Color3.new(0,0,0)
 
-local function createGUI()
-
-	local grade, gradeColor = getGrade(riskScore)
-
-	local gui = Instance.new("ScreenGui", player.PlayerGui)
-	gui.Name = "SecurityAnalyzerElite"
-
-	local main = Instance.new("Frame", gui)
-	main.Size = UDim2.new(0,700,0,550)
-	main.Position = UDim2.new(0.5,-350,0.5,-275)
-	main.BackgroundColor3 = Color3.fromRGB(18,18,25)
-	
-	Instance.new("UICorner", main).CornerRadius = UDim.new(0,16)
-
-	-- 타이틀
-	local title = Instance.new("TextLabel", main)
-	title.Size = UDim2.new(1,0,0,50)
-	title.BackgroundTransparency = 1
-	title.TextScaled = true
-	title.Text = "🛡️ Security Grade: "..grade.."  (Score: "..riskScore..")"
-	title.TextColor3 = gradeColor
-
-	-- 스크롤 영역
-	local scroll = Instance.new("ScrollingFrame", main)
-	scroll.Size = UDim2.new(0.95,0,0.75,0)
-	scroll.Position = UDim2.new(0.025,0,0,70)
-	scroll.CanvasSize = UDim2.new(0,0,0,#results*120)
-	scroll.ScrollBarThickness = 6
-	scroll.BackgroundTransparency = 1
-
-	local layout = Instance.new("UIListLayout", scroll)
-	layout.Padding = UDim.new(0,15)
-
-	for _, item in ipairs(results) do
-		
-		local container = Instance.new("Frame", scroll)
-		container.Size = UDim2.new(1,-10,0,100)
-		container.BackgroundColor3 = Color3.fromRGB(35,35,45)
-		Instance.new("UICorner", container).CornerRadius = UDim.new(0,12)
-
-		local label = Instance.new("TextLabel", container)
-		label.Size = UDim2.new(1,-20,0.5,0)
-		label.Position = UDim2.new(0,10,0,5)
-		label.BackgroundTransparency = 1
-		label.TextWrapped = true
-		label.TextXAlignment = Enum.TextXAlignment.Left
-		label.TextColor3 = Color3.fromRGB(230,230,230)
-		label.Text = item.icon.." "..item.message
-
-		-- 방어 코드 보기 버튼
-		local btn = Instance.new("TextButton", container)
-		btn.Size = UDim2.new(0.4,0,0,30)
-		btn.Position = UDim2.new(0.05,0,1,-35)
-		btn.Text = "📋 방어 코드 보기"
-		btn.BackgroundColor3 = Color3.fromRGB(70,70,90)
-		btn.TextColor3 = Color3.new(1,1,1)
-
-		btn.MouseButton1Click:Connect(function()
-			
-			local popup = Instance.new("Frame", gui)
-			popup.Size = UDim2.new(0,600,0,300)
-			popup.Position = UDim2.new(0.5,-300,0.5,-150)
-			popup.BackgroundColor3 = Color3.fromRGB(20,20,30)
-			Instance.new("UICorner", popup).CornerRadius = UDim.new(0,12)
-
-			local codeBox = Instance.new("TextBox", popup)
-			codeBox.Size = UDim2.new(0.95,0,0.8,0)
-			codeBox.Position = UDim2.new(0.025,0,0.1,0)
-			codeBox.TextWrapped = false
-			codeBox.ClearTextOnFocus = false
-			codeBox.MultiLine = true
-			codeBox.TextXAlignment = Enum.TextXAlignment.Left
-			codeBox.TextYAlignment = Enum.TextYAlignment.Top
-			codeBox.Text = item.defenseCode
-			codeBox.TextColor3 = Color3.fromRGB(0,255,150)
-			codeBox.BackgroundColor3 = Color3.fromRGB(10,10,15)
-
-			local close = Instance.new("TextButton", popup)
-			close.Size = UDim2.new(0.3,0,0,30)
-			close.Position = UDim2.new(0.35,0,1,-40)
-			close.Text = "닫기"
-			close.BackgroundColor3 = Color3.fromRGB(80,50,50)
-			close.TextColor3 = Color3.new(1,1,1)
-
-			close.MouseButton1Click:Connect(function()
-				popup:Destroy()
-			end)
-		end)
+genBtn.MouseButton1Click:Connect(function()
+	if #RemoteList > 0 then
+		codeBox.Text = generateDefense(RemoteList[1])
 	end
-end
+end)
 
--------------------------------------------------
--- 실행
--------------------------------------------------
+--========================--
+-- RUNTIME MONITOR
+--========================--
 
-analyzeRemotes()
-analyzeLeaderstats()
-createGUI()
+RunService.Heartbeat:Connect(function()
+	local char = player.Character
+	if char and char:FindFirstChild("Humanoid") then
+		if char.Humanoid.WalkSpeed > 25 then
+			registerIssue("Critical","Abnormal WalkSpeed detected")
+		end
+	end
+end)
+
+-- INIT
+scanRemotes()
